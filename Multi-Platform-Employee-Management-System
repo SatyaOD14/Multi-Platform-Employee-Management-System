@@ -1,0 +1,86 @@
+#front end
+# employee_dashboard.py
+import streamlit as st
+import requests
+import pandas as pd
+
+API_URL = "http://127.0.0.1:8000"
+
+st.set_page_config(page_title="Employee Management System", layout="wide")
+st.title("🏢 Multi-Platform Employee Management System")
+
+# -------------------------------
+# Login
+# -------------------------------
+st.sidebar.header("Login")
+username = st.sidebar.text_input("Username")
+password = st.sidebar.text_input("Password", type="password")
+role = None
+
+if st.sidebar.button("Login"):
+    response = requests.post(f"{API_URL}/login", json={"username": username, "password": password})
+    if response.status_code == 200:
+        role = response.json()['role']
+        st.success(f"Logged in as {role}")
+    else:
+        st.error("Invalid credentials")
+
+if role:
+    tabs = st.tabs(["Employee CRUD", "Reporting Dashboard"])
+
+    # -------------------------------
+    # Employee CRUD
+    # -------------------------------
+    with tabs[0]:
+        st.header("📝 Employee CRUD Operations")
+        action = st.selectbox("Select Action", ["List Employees", "Add Employee", "Update Employee", "Delete Employee"])
+        
+        if action == "List Employees":
+            resp = requests.get(f"{API_URL}/employees/")
+            df = pd.DataFrame(resp.json())
+            st.table(df)
+        
+        elif action == "Add Employee":
+            name = st.text_input("Name")
+            email = st.text_input("Email")
+            age = st.number_input("Age", 18, 70)
+            dept = st.text_input("Department")
+            salary = st.number_input("Salary", 0.0)
+            if st.button("Add Employee"):
+                emp_data = {"name": name, "email": email, "age": age, "department": dept, "salary": salary}
+                resp = requests.post(f"{API_URL}/employees/", json=emp_data)
+                st.write(resp.json())
+        
+        elif action == "Update Employee":
+            emp_id = st.number_input("Employee ID", 1)
+            name = st.text_input("Name")
+            email = st.text_input("Email")
+            age = st.number_input("Age", 18, 70)
+            dept = st.text_input("Department")
+            salary = st.number_input("Salary", 0.0)
+            if st.button("Update Employee"):
+                emp_data = {"name": name, "email": email, "age": age, "department": dept, "salary": salary}
+                resp = requests.put(f"{API_URL}/employees/{emp_id}", json=emp_data)
+                st.write(resp.json())
+        
+        elif action == "Delete Employee":
+            emp_id = st.number_input("Employee ID to Delete", 1)
+            if st.button("Delete Employee"):
+                resp = requests.delete(f"{API_URL}/employees/{emp_id}")
+                st.write(resp.json())
+
+    # -------------------------------
+    # Reporting Dashboard
+    # -------------------------------
+    with tabs[1]:
+        st.header("📊 Reporting Dashboard")
+        resp = requests.get(f"{API_URL}/employees/")
+        df = pd.DataFrame(resp.json())
+        if not df.empty:
+            st.metric("Total Employees", len(df))
+            st.metric("Average Salary", df['salary'].mean())
+            dept_count = df['department'].value_counts()
+            st.subheader("Employees per Department")
+            st.bar_chart(dept_count)
+        else:
+            st.info("No employee data available")
