@@ -1,0 +1,117 @@
+#backend
+
+# employee_api.py
+from fastapi import FastAPI, HTTPException, Depends
+from pydantic import BaseModel, EmailStr, conint
+from typing import List
+import sqlite3
+
+app = FastAPI(title="Employee Management API")
+DB = "employees.db"
+
+# -------------------------------
+# Database Setup
+# -------------------------------
+def init_db():
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS employees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            email TEXT UNIQUE,
+            age INTEGER,
+            department TEXT,
+            salary REAL
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password TEXT,
+            role TEXT
+        )
+    ''')
+    # Add a default admin
+    c.execute("INSERT OR IGNORE INTO users VALUES ('admin','admin123','Admin')")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# -------------------------------
+# Pydantic Models
+# -------------------------------
+class Employee(BaseModel):
+    name: str
+    email: EmailStr
+    age: conint(gt=18, lt=70)
+    department: str
+    salary: float
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+# -------------------------------
+# Helper
+# -------------------------------
+def get_conn():
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def authenticate(user: UserLogin):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM users WHERE username=? AND password=?", (user.username, user.password)).fetchone()
+    conn.close()
+    if row:
+        return row['role']
+    return None
+
+# -------------------------------
+# API Routes
+# -------------------------------
+@app.post("/login")
+def login(user: UserLogin):
+    role = authenticate(user)
+    if role:
+        return {"message": f"Login successful as {role}", "role": role}
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
+@app.post("/employees/")
+def add_employee(emp: Employee):
+    conn = get_conn()
+    try:
+        conn.execute("INSERT INTO employees (name,email,age,department,salary) VALUES (?,?,?,?,?)",
+                     (emp.name, emp.email, emp.age, emp.department, emp.salary))
+        conn.commit()
+        return {"message": "Employee added successfully"}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Email already exists")
+    finally:
+        conn.close()
+
+@app.get("/employees/", response_model=List[Employee])
+def list_employees():
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM employees").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.put("/employees/{emp_id}")
+def update_employee(emp_id: int, emp: Employee):
+    conn = get_conn()
+    conn.execute("UPDATE employees SET name=?, email=?, age=?, department=?, salary=? WHERE id=?",
+                 (emp.name, emp.email, emp.age, emp.department, emp.salary, emp_id))
+    conn.commit()
+    conn.close()
+    return {"message": "Employee updated successfully"}
+
+@app.delete("/employees/{emp_id}")
+def delete_employee(emp_id: int):
+    conn = get_conn()
+    conn.execute("DELETE FROM employees WHERE id=?", (emp_id,))
+    conn.commit()
+    conn.close()
+    return {"message": "Employee deleted successfully"}
